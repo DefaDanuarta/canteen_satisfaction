@@ -331,7 +331,7 @@ datatable(df %>% select(ID, major, frequency_visiting_canteen, mean_satisfaction
 
 ### **Performances in every aspects**
 
-This analysis is conducted to know the performance of every aspects that measured. The aspects that are measured such as, service, cleanliness, and product. The graph below shows the total average of the average performance scores for each aspect. This graph is expected to provide an overview of aspects that can be improved in the Binus Anggrek cafeteria.
+This analysis is conducted to know the performance of every aspects that measured. The aspects that are measured such as, service, cleanliness, and product. The graph below shows the total average of the average performance scores for each aspect. This graph is expected to provide an overview of aspects that can be improved in the Binus Anggrek cafeteria.\
 
 ```{r performance-total-mean-aspects}
 #calculate the total mean of every aspects
@@ -377,12 +377,12 @@ plot_peformance_ttl_mean <- ggplot(aspect_mean_score_long, aes(x = Aspect, y = m
 #show(plot_peformance_ttl_mean)
 ggplotly(plot_peformance_ttl_mean)
 ```
-
 ***Explanation***
 
 -   Based on the graph above, respondents gave **fairly good responses to the service**, as indicated by the average total score falling into the “good” category.\
 -   This was followed by the performance of the canteen food, which received a “medium” rating, with **room for improvement in terms of product quality and price.**\
 -   Finally, the aspect of **cleanliness requires significant improvement** in terms of cleanliness and access to washing facilities.
+
 
 ### **Seeing the Weaknesses of each Aspect**{.tabset}  
 In this analysis, I will focus on aspects that have a “Need Improvements” status which referring to Product and Cleanliness aspect. Here, I will create a descriptive statistical table to dig deeper into the areas that are weaknesses that greatly affect the average student satisfaction score for the Binus Anggrek cafeteria.  
@@ -547,6 +547,10 @@ mean_satisfaction_home_campus <- df %>%
   group_by(home_campus) %>%
   summarise(
     responses = n(),
+    service_sd = sd(rowMeans(select(cur_data(), all_of(cols_services)), na.rm = TRUE), na.rm = TRUE) %>% round(3),
+    cleanliness_sd = sd(rowMeans(select(cur_data(), all_of(cols_cleanliness)), na.rm = TRUE), na.rm = TRUE) %>% round(3),
+    product_sd = sd(rowMeans(select(cur_data(), all_of(cols_product)), na.rm = TRUE), na.rm = TRUE) %>% round(3),
+    
     services_score = mean(mean_services_score) %>% round(digits = 3),
     cleanliness_score = mean(mean_cleanliness_score) %>% round(digits = 3),
     product_score = mean(mean_product_score) %>% round(digits = 3),
@@ -640,8 +644,14 @@ mean_satisfaction_major <- df %>%
   summarise(
     responses = n(),
     services_score = mean(mean_services_score) %>% round(digits = 3),
+    service_sd = df %>% select(all_of(cols_services)) %>% rowMeans(na.rm = TRUE) %>% sd(na.rm = TRUE) %>% round(3),
+    
     cleanliness_score = mean(mean_cleanliness_score) %>% round(digits = 3),
+    cleanliness_sd = df %>% select(all_of(cols_cleanliness)) %>% rowMeans(na.rm = TRUE) %>% sd(na.rm = TRUE) %>% round(3),
+    
     product_score = mean(mean_product_score) %>% round(digits = 3),
+    product_sd = df %>% select(all_of(cols_product)) %>% rowMeans(na.rm = TRUE) %>% sd(na.rm = TRUE) %>% round(3),
+    
     overall_score = mean(mean_satisfaction_score) %>% round(digits = 3)
     )
 
@@ -693,7 +703,7 @@ datatable(mean_satisfaction_major, caption = "Aspects Score by Grouped Majors")
 
 
 ## **Conclusions**  
-Analisa menunjukan bahwa tingkat kepuasan mahasiswa memiliki variasi yang luas di setiap aspeknya. Pada analisa sebelumnya menyatakan bahwa kebanyakan responden menjawab kuisioner dengan kurun waktu 2 menit, waktu ter singkat adalah   
+Analisa menunjukan bahwa tingkat kepuasan mahasiswa memiliki variasi yang luas di setiap aspeknya. Pada analisa sebelumnya menyatakan bahwa kebanyakan responden menjawab kuisioner dengan kurun waktu 2 menit yang secara tidak langsung menunjukan keseriusan responden dalam mengisi kuisioner. Dari analisa penilaian kantin berdasarkan tiap aspeknya, ada 2 aspek yang harus diperhatikan secara khusus, yaitu cleanliness dan product. Berdasarkan hasil analisa, ada persebaran yang cukup besar dalam aspek cleanliness dan product, di mana mahasiswa memiliki jawaban yang beragam berdasar dari home campus dan kategori jurusan. 
 
 ### **Summary of Key Findings**
 
