@@ -696,4 +696,4 @@ datatable(mean_satisfaction_major, caption = "Aspects Score by Grouped Majors")
 Analisa menunjukan bahwa tingkat kepuasan mahasiswa memiliki variasi yang luas di setiap aspeknya. Pada analisa sebelumnya menyatakan bahwa kebanyakan responden menjawab kuisioner dengan kurun waktu 2 menit, waktu ter singkat adalah   
 
 ### **Summary of Key Findings**
-INI ADALAH PERUBAHAN BARU
+This line is to check version control
