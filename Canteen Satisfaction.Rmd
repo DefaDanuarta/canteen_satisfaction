@@ -1,0 +1,698 @@
+---
+title: "<b>Satisfaction of active mobility program students with the Binus Anggrek cafeteria</b>"
+author: "I Kadek Defa Danuarta"
+output:
+  html_document: default
+  pdf_document: default
+ 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+# **Backgrounds**  
+We are a team of active students in the mobility program. My team and I have had several new experiences, starting with small things in campus life, one of which is shopping at the canteen. My colleagues come from different campuses, starting from Binus Semarang, Binus Bandung, and myself from Binus Malang.
+
+In this project, I will attempt to analyze **how active students in the student mobility program perceive the service, cleanliness, and food quality at the Binus Anggrek cafeteria**, and **analyze the factors influencing satisfaction based on questionnaire data.**
+
+# **Datasets**{.tabset}  
+This data was obtained from an internal survey on student satisfaction levels regarding service, cleanliness, and food products at the Binus Anggrek Campus cafeteria. The survey was conducted anonymously using a Likert scale in bahasa language.
+
+***DISCLAIMER***\
+The data has been anonymized by removing personal identity information such as names, email addresses, and student ID numbers in accordance with personal data protection principles. *The data will be extracted to a .csv file format in every type of changes in the process*
+
+<!-- Importing Library -->
+
+```{r importing-lib}
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(tidyr)
+library(readxl)
+library(knitr)
+library(DT)
+library(lubridate) #to process the time stamp
+```
+
+<!-- Importing Dataset -->
+
+```{r import-data}
+dirty_df <- read_excel("questionaire_result.xlsx")
+```
+
+## **Data Cleaning & Preprocessing**
+
+```{r missing-value, results = 'hide'}
+# this code is used to see all the missing value in each columns
+colSums(is.na(dirty_df))
+```
+
+### **Identifies Missing Value and The Causes**
+
+```{r viewing-missing-value}
+na_count <- colSums(is.na(dirty_df))
+na_cols <- names(na_count[na_count > 0])
+
+cat("Missing values is founded in:\n")
+for (col in na_cols) {
+  cat(col, ":", na_count[col], "missing value(s)\n")
+}
+```
+
+The main reason for the missing values, especially for *Home Campus*, is that the respondents are not active participants in the mobility program. Since the purpose is to measure the satisfaction of **students who are actively involved in the mobility program**, I decided to remove these entries with missing *Home Campus* values.
+
+For column **Jurusan**, I imputed the missing values using the most frequently occurring major. This approach is intended to preserve useful responses, as the remaining data may still contribute valuable insights for the analysis.
+
+<!-- **Deleting Missing Values** -->
+
+```{r deleting-missing-value, results = 'hide'}
+df <- na.omit(dirty_df)
+
+sum(is.na(df$home_campus))
+```
+
+<!-- **Imputing Missing Value For "major"** -->
+
+```{r impute-major, results='hide'}
+get_mode <- function(v) {
+  uniqv <- na.omit(unique(v))
+  uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+df$major[is.na(df$major)] <- get_mode(df$major)
+```
+
+<!-- Viewing result -->
+
+```{r}
+new_na_count <- colSums(is.na(df))
+na_cols <- names(new_na_count[new_na_count > 0])
+
+cat("Missing values after deletion and imputation:\n")
+cat("major:", sum(is.na(df$major)), "\n")
+cat("home_campus:", sum(is.na(df$home_campus)))
+```
+
+From the results above it shows a successful attemp to handle missing values
+
+### **Handle Inconsistent Values in Likert Scale**
+
+```{r insert-likert-column, results='hide'}
+#likert columns
+likert_cols <- df %>% select(where(is.character), 
+                             -c(major, 
+                                active_mobility, 
+                                home_campus, 
+                                frequency_visiting_canteen, 
+                                advice_for_services, 
+                                cleanliness_advice, 
+                                facility_advice, 
+                                product_advice
+                                )) %>% names()
+```
+
+To anticipate inconsistent values, I'll change all the likert categories to a lowercase (in case there are some miss type in the questionnaire form)
+
+```{r mutate-inconsistent-likert}
+cat("Before mutation:", paste(unique(df$staff_response), collapse = ", "), "\n")
+
+#get every categorical column
+cat_cols <- df %>%select(where(is.character)) %>% names()
+
+#mutate every category to lowercase
+df <- df %>% mutate(across(all_of(cat_cols), ~ tolower(.)))
+
+#make a copy of dataframe to be extracted in csv format
+export_mutated_df <- df
+write.csv(export_mutated_df, "1st_cleaned_mutated_questionnaire_results.csv", row.names = FALSE)
+
+cat("After mutation:", paste(unique(df$staff_response), collapse = ", "))
+```
+
+This process is to anticipate errors in encoding process, since the inconsistent value is completely handled, encoding is needed to transform the likert category to a numeric form of scale.
+
+### **Separating Date, Timestamp, and Durations**
+
+```{r separating-time-date-dur, results='hide'}
+#make a temporary dataframe to obtain the date and time
+selected_time_col <- c("start_time", "completion_time")
+temporary <- df[selected_time_col]
+
+#extract date
+temporary$date <- as.Date(df$start_time)
+
+#extract start time and finish
+temporary$started_time <- format(df$start_time, "%H:%M:%S")
+temporary$finished_time <- format(df$completion_time, "%H:%M:%S")
+
+#calculate duration in minutes
+temporary$durations <- as.numeric(difftime(temporary$completion_time, df$start_time, units = "mins") %>% round(digits = 2))
+
+df$date <- temporary$date
+df$start_time <- temporary$started_time
+df$completion_time <- temporary$finished_time
+df$duration <- temporary$durations
+```
+
+```{r view-date}
+#head(temporary %>% select(start_time, completion_time))
+datatable(temporary %>% select(start_time, completion_time), caption = "Default Timestamp")
+```
+
+By default, the tool used to gather questionnaire results has a time stamp about starting time to a completion time. Where in this case I will parse them to an identical column. In this case I'll separate the date and time into an individual column.
+
+```{r view-separated-date}
+#head(df %>% select(ID, major, date, start_time, completion_time, duration))
+datatable(df %>% select(ID, major, date, start_time, completion_time, duration), caption = "Separated Timestamp")
+```
+
+### **Encoding Likert Scale and frequency**
+
+```{r viewing-unique-value}
+#cat("Unique value for frequency of respondent visit canteen: ", paste(unique(df$frequency_visiting_canteen), collapse = ", "), "\n")
+cat("Unique value for every likert scale: ", paste(unique(df$friendly_staff), collapse = ", "))
+```
+
+The result above are unique values. Where in this case, every likert scales will be encoded manually to a range number from one(1) to five(5).
+
+```{r encode-likert-freq}
+#scales
+likert_scale <- c("sangat tidak setuju", "tidak setuju", "tidak merasakan", "setuju", "sangat setuju")
+df[likert_cols] <- lapply(df[likert_cols], function(col) match(col, likert_scale))
+
+#freq
+#frequency <- c("0 kali", "1-2 kali", "3-4 kali", ">4 kali")
+#df$frequency_visiting_canteen <- sapply(df$frequency_visiting_canteen, function(freq) match(freq, frequency))
+
+#Export dataframes to csv file
+export_encoded_df <- df
+write.csv(export_encoded_df, "2nd_encoded_questionnaire_results.csv", row.names = FALSE)
+
+
+#cat("Unique value for frequency of respondent visit canteen: (after encoding)", paste(unique(df$frequency_visiting_canteen), collapse = ", "), "\n")
+cat("Unique value for every likert scale (after encoding): ", paste(unique(df$friendly_staff), collapse = ", "))
+```
+
+### **New Column for Further Analysis**
+
+```{r calc-mean-satisfaction}
+df$mean_satisfaction_score <- rowMeans(df[likert_cols], na.rm = TRUE)
+```
+
+**Average/Mean Satisfaction Score**\
+Here I make a new column to support further analysis and prediction tasks. This value is calculated as the **average of every encoded likert scale**. Why is this important? it provides a single quantitative measure that summarizes overall student satisfaction. It allows for easier comparison between respondents and can be used as a target variable in predictive modeling or segmentation analysis.
+
+```{r calc-mean-score-per-aspects}
+#take every column based on their aspects
+cols_services <- c("staff_response", 
+                   "friendly_staff", 
+                   "quick_response_staff", 
+                   "order_waiting_time", 
+                   "payment_method", 
+                   "smooth_payment", 
+                   "clear_menu_info")
+cols_cleanliness <- c("clean_area", 
+                      "cozy_room_layout", 
+                      "neat_furniture_placement", 
+                      "clean_utensils", 
+                      "cleaning_facility", 
+                      "proper_table_chair", 
+                      "cozy_seating_area") 
+cols_product <- c("menu_variety",
+                  "healty_menu",
+                  "freshness_menu",
+                  "taste_match_price",
+                  "affordable_price", 
+                  "price_vs_quality")
+df$mean_services_score <- rowMeans(df[cols_services], na.rm = TRUE) %>% round(digits = 2)
+df$mean_cleanliness_score <- rowMeans(df[cols_cleanliness], na.rm = TRUE) %>% round(digits = 2)
+df$mean_product_score <- rowMeans(df[cols_product], na.rm = TRUE) %>% round(digits = 2)
+
+#head(df %>% select(ID, major, mean_services_score, mean_cleanliness_score, mean_product_score, mean_satisfaction_score))
+datatable(df %>% select(ID, major, mean_services_score, mean_cleanliness_score, mean_product_score, mean_satisfaction_score), caption = "Score per Aspects")
+
+#export to csv file
+export_scores_df <- df
+write.csv(export_scores_df, "3rd_avg_scores_added_questionnaire_results.csv", row.names = FALSE)
+```
+
+**Average/Mean Score in Every aspects**\
+To perform an in-depth analysis of the performance of each metric measured such as services, cleanliness, and product, I created a new column to store the average of each question to measure respondents' satisfaction with the aspects
+
+## **Analysis**
+
+### **Distribution of Duration**
+
+The first analysis is to see the distribution of duration. This graph might help to evaluate respondents who fill out the questionnaire too quickly or too slowly, which indicates their seriousness in answering the questionnaire.
+
+```{r distribution-of-duration}
+plot_duration_dist <- ggplot(df, aes(x = duration, y = ))+
+  geom_histogram(fill = "#B4E50D")+
+  labs(
+    title = "Distribution of Duration (minutes)",
+    x = "Durations"
+  )+
+  theme_classic()
+#show(plot_duration_dist)
+ggplotly(plot_duration_dist)
+```
+
+Based on the histogram above, respondents are more likely to complete the questionnaire in about 2 minutes. This data shows that respondents answered the questionnaire fairly quickly.
+
+At 0 minutes, this could be caused by some respondents answered the questionnaire very quickly and might not read the questions (not taking it seriously). Further analysis will be explained through the descriptive statistics below.
+
+```{r stat-desc-duration}
+summary(df$duration)
+```
+
+The shortest duration for respondent to fill questionnaire is 0.520 minutes.
+
+### **Canteen Visitors Frequency**{.tabset}
+
+In this analysis, I'll try to measure visitation rate with satisfaction. In order to categorize the satisfaction level, I'll use discretization or binning to make a category out of mean satisfaction score. The mapping of this process are as follows:
+
+***(MSS = Mean Satisfaction Score)***
+
+-   MSS less or equal to 1 = "Bad"\
+-   MSS greater than 1 AND MSS less or equal to 3 = "Quite Bad"\
+-   MSS greater than 3 AND MSS less than 5 = "Good"\
+-   MSS equal to 5 = "Excellent"  
+
+```{r binning-mean-satisfaction-score, results='hide'}
+df <- df %>% 
+  mutate(satisfaction_category = case_when(
+    mean_satisfaction_score <= 1 ~ "Bad",
+    mean_satisfaction_score > 1 & mean_satisfaction_score <= 3 ~ "Quite Bad",
+    mean_satisfaction_score > 3 & mean_satisfaction_score < 5 ~ "Good",
+    mean_satisfaction_score == 5 ~ "Excellent"
+  ))
+
+#export to csv file
+export_binning_scores_df <- df
+write.csv(export_binning_scores_df, "4th_binning_scores_added_questionnaire_results.csv", row.names = FALSE)
+```
+
+#### **Graph View**  
+
+After discretization or binning process, the analysis will be utilizing a plot to show the **Amount of Canteen Visitors by Frequent Visiting and Satisfaction Category**
+
+```{r frequency-canteen-visitors}
+freq_canteen_visit_scheme <- c(
+  "Bad" = "#F93827",
+  "Quite Bad" = "#FF9D23",
+  "Good" = "#B4E50D",
+  "Excellent" = "#78C841"
+) 
+
+plot_freq_canteen_visit <- ggplot(df, aes(x = frequency_visiting_canteen, fill = satisfaction_category))+
+  geom_bar()+
+  labs(
+    title = "Canteen Visitors by Frequent Visiting and Satisfaction Category",
+    x = "Frequency Category"
+  )+
+  scale_fill_manual(values = freq_canteen_visit_scheme)+
+  theme_classic()
+
+#show(plot_freq_canteen_visit)
+ggplotly(plot_freq_canteen_visit)
+```
+
+***Explanation:***
+
+-   The visitors mostly come once until two times a week, meaning that the canteen is not a frequent place to visit. The overall satisfaction level is on "good" condition with 2 respond show an excellent satisfaction level.\
+-   Respondent who chose "0 kali" or rarely go to canteen showing the most "quite bad" satisfaction level among others. This might indicated by some people that had a unfulfilled expectations.
+
+#### **Table View**  
+```{r viewing-binning-result}
+#head(df %>% select(ID, major, mean_satisfaction_score, satisfaction_category))
+datatable(df %>% select(ID, major, frequency_visiting_canteen, mean_satisfaction_score, satisfaction_category), caption = "Binning Mean Satisfaction Score Result")
+```
+
+### **Performances in every aspects**
+
+This analysis is conducted to know the performance of every aspects that measured. The aspects that are measured such as, service, cleanliness, and product. The graph below shows the total average of the average performance scores for each aspect. This graph is expected to provide an overview of aspects that can be improved in the Binus Anggrek cafeteria.
+
+```{r performance-total-mean-aspects}
+#calculate the total mean of every aspects
+aspect_mean_score <- df %>% 
+  summarize(
+    services = mean(mean_services_score, na.rm= TRUE),
+    cleanliness = mean(mean_cleanliness_score, na.rm= TRUE),
+    product = mean(mean_product_score, na.rm= TRUE),
+  )
+
+#turn the "means" to long format
+aspect_mean_score_long <- pivot_longer(aspect_mean_score, everything(), names_to = "Aspect", values_to = "mean_score")
+
+#binning to tell the color identity
+aspect_mean_score_long <- aspect_mean_score_long %>% 
+  mutate(
+    Performance = case_when(
+      mean_score > 4 ~ "Good",
+      mean_score >= 3.9 ~ "Medium",
+      TRUE ~ "Needs Improvement"
+    )
+  )
+
+#make a color scheme
+peformance_ttl_mean_scheme <- c(
+  "Needs Improvement" = "#FF9D23",
+  "Medium" = "#B4E50D",
+  "Good" = "#78C841"
+) 
+
+plot_peformance_ttl_mean <- ggplot(aspect_mean_score_long, aes(x = Aspect, y = mean_score, fill = Performance))+
+  geom_bar(stat = "identity", width = 0.6)+
+  geom_text(aes(label = round(mean_score, 2)), vjust = -0.5, size = 4)+
+  labs(
+    title = "Total Average Canteen Score per Aspect",
+    x = "Aspects",
+    y = "Mean Score"
+  )+
+  ylim(0, 5) +
+  scale_fill_manual(values = peformance_ttl_mean_scheme)+
+  theme_minimal()
+
+#show(plot_peformance_ttl_mean)
+ggplotly(plot_peformance_ttl_mean)
+```
+
+***Explanation***
+
+-   Based on the graph above, respondents gave **fairly good responses to the service**, as indicated by the average total score falling into the “good” category.\
+-   This was followed by the performance of the canteen food, which received a “medium” rating, with **room for improvement in terms of product quality and price.**\
+-   Finally, the aspect of **cleanliness requires significant improvement** in terms of cleanliness and access to washing facilities.
+
+### **Seeing the Weaknesses of each Aspect**{.tabset}  
+In this analysis, I will focus on aspects that have a “Need Improvements” status which referring to Product and Cleanliness aspect. Here, I will create a descriptive statistical table to dig deeper into the areas that are weaknesses that greatly affect the average student satisfaction score for the Binus Anggrek cafeteria.  
+
+In this process, it'll require binning technique to categorize each variables based on their average scores. The Binning process will be mapped as follows:
+
+-   mean less than 3.5 = "Needs Improvement"  
+-   mean less than 4 = "Medium"  
+-   mean greater than or equal 4 = "Good"  
+
+```{r identify-weaknesses-aspect}
+#each of the variables name is already declared
+
+#make a long df to combine the multiple column to an each identical column per aspects
+df_long_stats <- df %>% 
+  select(all_of(c(cols_services, cols_cleanliness, cols_product))) %>%
+  pivot_longer(cols = everything(),
+               names_to = "variable",
+               values_to = "score") %>%
+  mutate(aspect = case_when(
+    variable %in% cols_services ~ "service",
+    variable %in% cols_cleanliness ~ "cleanliness",
+    variable %in% cols_product ~ "product"
+  ))
+
+#count the stats
+df_stats <- df_long_stats %>% group_by(aspect, variable) %>%
+  summarise(
+    #I'll round the result to handle the numbers with ease
+    mean = mean(score, na.rm = TRUE) %>% round(digits = 4),
+    median = median(score, na.rm = TRUE),
+    sd = sd(score, na.rm = TRUE) %>% round(digits = 4),
+    max = max(score, na.rm = TRUE),
+    min = min(score, na.rm = TRUE)
+  )
+
+#binning
+df_stats <- df_stats %>% mutate(
+  category = case_when(
+    mean < 3.5 ~ "Needs Improvement",
+    mean < 4 ~ "Medium",
+    TRUE ~ "Good"
+  )
+)
+```
+
+#### **Graph View**  
+```{r extract-stats, results='hide'}
+#extract every variable to a new df based on their aspect
+services_df <- df_stats %>% filter(aspect =="service")
+cleanliness_df <- df_stats %>% filter(aspect =="cleanliness")
+product_df <- df_stats %>% filter(aspect =="product")
+```
+
+```{r cleanliness-stat-plot}
+plot_service_stat <- ggplot(cleanliness_df, aes(x = variable, y = mean, fill = category))+
+  geom_col() +
+  coord_flip() +
+  facet_wrap(~ aspect, scales = "free_y") +
+  labs(title = "Average Score per Variable on Cleanliness Aspect",
+       x = "Variable", y = "Mean Score") +
+  scale_fill_manual(values = c("Needs Improvement" = "#FF9D23", 
+                               "Medium" = "#B4E50D", 
+                               "Good" = "#78C841")) +
+  theme_minimal()
+  
+ggplotly(plot_service_stat)
+#show(plot_service_stat)
+```
+
+##### **Cleanliness**  
+The average of `cleaning_facility` variable have the lowest results such as 3,62 (if rounded by 2), followed by `neat_furniture_placement` with result of the average is 3,69. These both variable are the weak point for cleanliness aspect. This weaknesses also affecting the total average score of cleanliness (could be found at "Analysis" tab) to be the lowest among all existing aspects.
+
+Both of those variable have a high standard deviation (sd > 0,5) which indicate that the distribution was quite wide among the respondents' answers. Moreover, there was a change in the location of the cafeteria during the collection of the questionnaire results, it might affect the wide response that has mentioned before.
+
+```{r product-stat-plot}
+plot_service_stat <- ggplot(product_df, aes(x = variable, y = mean, fill = category))+
+  geom_col() +
+  coord_flip() +
+  facet_wrap(~ aspect, scales = "free_y") +
+  labs(title = "Average Score per Variable on Product Aspect",
+       x = "Variable", y = "Mean Score") +
+  scale_fill_manual(values = c("Needs Improvement" = "#FF9D23", 
+                               "Medium" = "#B4E50D", 
+                               "Good" = "#78C841")) +
+  theme_minimal()
+  
+ggplotly(plot_service_stat)
+#show(plot_service_stat)
+```
+
+##### **Product**  
+In Product aspect, there are two different variables that fell into "Medium" category, such as `affordable_price` with the average of 3,65 and `price_vs_quality` with an average of 3,88. The `affordable_price` variable had a high standard deviation (\~0,93), this indicates a fairly wide spread among respondents' answers and may be influenced by various segments available.
+
+
+```{r service-stat-plot}
+plot_service_stat <- ggplot(services_df, aes(x = variable, y = mean, fill = category))+
+  geom_col() +
+  coord_flip() +
+  facet_wrap(~ aspect, scales = "free_y") +
+  labs(title = "Average Score per Variable on Service Aspect",
+       x = "Variable", y = "Mean Score") +
+  scale_fill_manual(values = c("Needs Improvement" = "#FF9D23", 
+                               "Medium" = "#B4E50D", 
+                               "Good" = "#78C841")) +
+  theme_minimal()
+  
+ggplotly(plot_service_stat)
+#show(plot_service_stat)
+```
+
+##### **Services**  
+Finally, most respondents stated that service aspects fell into the “Good” category, as seen from the average of each variable, which was greater than 4 (“Agree” on the Likert scale) and the consistency of respondents (median) answering 4 on most service aspects. However, despite the ratings falling into the “Good” category, `staff_response` falls into the “Medium” category, as not all respondents felt that the staff in the cafeteria were responsive to questions or complaints.  
+
+#### **Table View**  
+```{r table-view-weaknesses-aspect}
+#head(df_stats)
+datatable(df_stats, caption = "Statistic Descriptive of Each Variables Based on Their Aspects")
+```
+
+### **Segmentation Based on Home Campus**  
+This analysis was conducted to gain insight into the responses of respondents from various campuses regarding three aspects that influence student satisfaction with the Binus Anggrek cafeteria.
+
+```{r checking-home-campus-var, results='hide'}
+#check unique value in home campus
+unique(df$home_campus)
+
+#check how many respondent who inserted "binus@greater jakarta"
+sum(df$home_campus == "binus@greater jakarta", na.rm = TRUE)
+```
+
+```{r segmentation-home-campus}
+segment_satis_scheme <- c(
+  "Bad" = "#F93827",
+  "Quite Bad" = "#FF9D23",
+  "Good" = "#B4E50D",
+  "Excellent" = "#78C841"
+) 
+
+#plot to count segmentation satisfaction 
+plot_segment_satis <- ggplot(df, aes(x = home_campus, fill = satisfaction_category))+
+  geom_bar()+
+  labs(
+    title = "Satisfaction per Home Campus Segmentation",
+    x = "Home Campuses",
+    y = "Count"
+  )+
+  scale_fill_manual(values = segment_satis_scheme)
+
+#show(plot_segment_satis)
+ggplotly(plot_segment_satis)
+```
+
+***Explanations:***\
+Based on home campus segmentation, the majority of students from **Binus Bandung and Binus Semarang have a satisfaction category classified as “Good,”** with a few of them falling into the “Excellent” category. On the other hand, some respondents from **Binus Semarang fall into the “Quite Bad”** review category, which may be due to their lowered expectations regarding the Binus Anggrek canteen. Based on the above results, although satisfaction levels are relatively stable, there is **room for improvement to make the experience truly exceptional.**
+
+### **Average Score per Aspect Grouped by Home Campus**{.tabset}  
+This analysis was conducted to determine the level of satisfaction of respondents from different home campuses with regard to the three aspects of the cafeteria.
+```{r mean-satis-aspect-per-home-campus, results= 'hide'}
+#duplicate the df to new dataframe focusing on mean score per home campuses
+mean_satisfaction_home_campus <- df %>%
+  group_by(home_campus) %>%
+  summarise(
+    responses = n(),
+    services_score = mean(mean_services_score) %>% round(digits = 3),
+    cleanliness_score = mean(mean_cleanliness_score) %>% round(digits = 3),
+    product_score = mean(mean_product_score) %>% round(digits = 3),
+    overall_score = mean(mean_satisfaction_score) %>% round(digits = 3)
+  )
+
+#make the df to long format
+long_mean_satisfaction_home_campus <- mean_satisfaction_home_campus %>%
+  pivot_longer(cols = c(services_score, cleanliness_score, product_score), names_to = "aspect", values_to = "score")
+
+#Binning the score
+long_mean_satisfaction_home_campus <- long_mean_satisfaction_home_campus %>% mutate(
+  category = case_when(
+     score > 4 ~ "Exellent",
+     score >= 3.9 ~ "Good",
+     TRUE ~ "Needs Improvement"
+  )
+)
+```
+
+#### **Graph View**
+```{r plot-satis-aspect-per-home-campus}
+#make a color scheme
+mean_satisfaction_home_campus_scheme <- c(
+  "services_score" = "#FF9D23",
+  "cleanliness_score" = "#B4E50D",
+  "product_score" = "#78C841"
+) 
+
+plot_satis_aspect_per_home_campus <- ggplot(long_mean_satisfaction_home_campus, aes(x = home_campus, y = score, fill = aspect)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Average Score per Aspect by Home Campus",
+       x = "Home Campus", y = "Score") +
+  scale_fill_manual(values = mean_satisfaction_home_campus_scheme) +
+  theme_minimal()
+
+#show(plot_satis_aspect_per_home_campus)
+ggplotly(plot_satis_aspect_per_home_campus)
+```
+
+**Main Insight:**
+
+1.  **The Service aspect** (services_score) consistently received the highest score across all campuses, with the highest score belonging to Binus Malang (4.112) and the lowest to Binus Greater Jakarta (4.000).\
+2.  **Cleanliness** (cleanliness_score) shows the greatest difference between campuses:\
+    2.1. *Highest score:* Binus Malang (4.008)\
+    2.2. *Lowest score:* Binus Semarang (3.754), this score also caused this campus to be the only one in the “Needs Improvement” category in the previous analysis.\
+3.  **Products** (product_score) tend to be in the middle, relatively consistent with small differences between campuses (\~0.1).
+
+***Explanation for Binus Greater Jakarta:*** The graph above shows a comparison of scores for each aspect of the Binus Anggrek cafeteria assessment, grouped by home campuses. Some of the data above cannot be confirmed for accuracy, particularly for respondents from the Binus Greater Jakarta campus, as there was only one respondent who scored a 4 on all three aspects. Therefore, the results of respondent from greater jakarta should not be used as a basis for decision-making.
+
+#### **Table View**
+```{r showing-aspect-score-groupby-homecampus}
+#head(mean_satisfaction_home_campus)
+datatable(mean_satisfaction_home_campus, caption = "Aspects Score Group by Home Campus")
+```
+
+### **Segmentation Based on Major**{.tabset}
+
+This analysis was conducted to gain insight into the average satisfaction scores of students grouped by major. Therefore I'll check the unique values in case there were so many majors are in the datasets.
+
+```{r checking-major-var}
+#check unique value in home campus
+unique(df$major)
+```
+
+There are 12 unique values in major that might require to turn them into a broad categories. For example:
+
+-   **Tech / IT:** Computer Science, Software Engineering, AI, Cyber Security, Computer Engineering, Data Science, Information Systems\
+-   **Design / Creative:** Interior Design, Game Application\
+-   **Business / Comm:** Digital Business, Marketing Comm, Public Relations
+
+```{r make-grouped-major}
+df <- df %>% mutate(
+  major_group = case_when(
+    major %in% c("computer science", "computer science - software engineering", "artificial intelligence", "data science", "cyber security", "computer engineering", "information systems") ~ "Tech",
+    major %in% c("game application and technology", "interior design") ~ "Design",
+    major %in% c("digital business", "communication - marketing communication", "public relations") ~ "Business/Communication",
+    TRUE ~ "others"
+  )
+) 
+
+#export to csv file
+export_major_grouped_df <- df
+write.csv(export_major_grouped_df, "5th_grouped_major_added_questionnaire_results.csv", row.names = FALSE)
+```
+
+```{r mean-satis-aspect-per-major, results='hide'}
+#duplicate the df to new dataframe focusin on mean score per major
+mean_satisfaction_major <- df %>%
+  group_by(major_group) %>%
+  summarise(
+    responses = n(),
+    services_score = mean(mean_services_score) %>% round(digits = 3),
+    cleanliness_score = mean(mean_cleanliness_score) %>% round(digits = 3),
+    product_score = mean(mean_product_score) %>% round(digits = 3),
+    overall_score = mean(mean_satisfaction_score) %>% round(digits = 3)
+    )
+
+#make the df to long format
+long_mean_satisfaction_major <- mean_satisfaction_major %>%
+  pivot_longer(cols = c(services_score, cleanliness_score, product_score), names_to = "aspect", values_to = "score")
+
+#Binning the score
+long_mean_satisfaction_major <- long_mean_satisfaction_major %>% mutate(
+  category = case_when(
+     score > 4 ~ "Exellent",
+     score >= 3.9 ~ "Good",
+     TRUE ~ "Needs Improvement"
+  )
+)
+```
+
+#### **Graph View**  
+```{r plot-satis-aspect-per-major}
+#make a color scheme
+mean_satisfaction_major_scheme <- c(
+  "services_score" = "#FF9D23",
+  "cleanliness_score" = "#B4E50D",
+  "product_score" = "#78C841"
+) 
+
+plot_satis_aspect_per_major <- ggplot(long_mean_satisfaction_major, aes(x = major_group, y = score, fill = aspect)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Average Score per Aspect by Grouped Majors",
+       x = "Home Campus", y = "Score") +
+  scale_fill_manual(values = mean_satisfaction_major_scheme) +
+  theme_minimal()
+
+#show(plot_satis_aspect_per_major)
+ggplotly(plot_satis_aspect_per_major)
+```
+
+
+***Insights & Explanations:***\
+Based on the segmentation of grouped majors, students from the Tech field dominate the respondent population (n = 95), making the scores from this group the most representative reference.
+
+On the other hand, the Design and Business/Communication groups showed relatively higher satisfaction scores. However, due to the very small number of respondents (n = 2 and n = 5), these results are not sufficiently robust to be generalized. This finding underscores **the importance of balanced representation in surveys to ensure that the analysis reflects the entire student population.**
+
+#### **Table View**
+```{r showing-aspect-score-grouped-majors}
+#head(mean_satisfaction_major)
+datatable(mean_satisfaction_major, caption = "Aspects Score by Grouped Majors")
+```
+
+
+## **Conclusions**  
+Analisa menunjukan bahwa tingkat kepuasan mahasiswa memiliki variasi yang luas di setiap aspeknya. Pada analisa sebelumnya menyatakan bahwa kebanyakan responden menjawab kuisioner dengan kurun waktu 2 menit, waktu ter singkat adalah   
+
+### **Summary of Key Findings**
